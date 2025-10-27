@@ -35,6 +35,13 @@ int redFrequency = 0;
 int greenFrequency = 0;
 int blueFrequency = 0;
 
+// ---------- Valores de calibração ----------
+int RED_REF = 100;
+int GREEN_REF = 100;
+int BLUE_REF = 100;
+
+bool fimPercurso = false;
+
 // ---------- Funções ----------
 void andarFrente();
 void pararMotores();
@@ -44,6 +51,7 @@ long medirDistancia();
 int readChannel(bool s2, bool s3);
 String detectarCor();
 void seguirLinha();
+void calibrarSensor();
 
 void setup() {
   // Sensores ultrassônico
@@ -76,21 +84,29 @@ void setup() {
   pinMode(IR_DIR, INPUT);
 
   Serial.begin(9600);
-  Serial.println("=== Carrinho iniciado ===");
+  Serial.println("=== Start Veículo Autônomo ===");
+
+  //Calibração automatica do sensor TCS230
+  //calibrarSensor();
 
   // Espera cor verde para começar
   String corDetectada = "";
   do {
     corDetectada = detectarCor();
-    Serial.println("Aguardando cor VERDE para iniciar...");
+    Serial.print("Detectando, aguardando cor verde para o inicio: ");
+    Serial.println(corDetectada);
+    Serial.print(" R:");
+    Serial.print(redFrequency);
+    Serial.print(" G:");
+    Serial.print(greenFrequency);
+    Serial.print(" B:");
+    Serial.println(blueFrequency);
     delay(500);
   } while (corDetectada != "VERDE");
 
-  // LED verde por 5 s
   digitalWrite(LED_VERDE, HIGH);
   delay(5000);
   digitalWrite(LED_VERDE, LOW);
-
   andarFrente();
 }
 
@@ -102,7 +118,27 @@ void loop() {
   Serial.print(cor);
   Serial.print(" | Distância: ");
   Serial.print(distancia);
-  Serial.println(" cm");
+  Serial.print(" cm | R:");
+  Serial.print(redFrequency);
+  Serial.print(" G:");
+  Serial.print(greenFrequency);
+  Serial.print(" B:");
+  Serial.println(blueFrequency);
+
+  if (fimPercurso) {
+    pararMotores();
+    digitalWrite(LED_VERMELHO, HIGH);
+
+    if (cor == "VERDE") {
+      fimPercurso = false;
+      digitalWrite(LED_VERDE, HIGH);
+      delay(5000);
+      digitalWrite(LED_VERDE, LOW);
+    }
+
+    delay(100);
+    return;
+  }
 
   // Evita colisão
   if (distancia <= 10 && distancia > 0) {
@@ -110,35 +146,36 @@ void loop() {
     digitalWrite(LED_VERMELHO, HIGH);
     delay(500);
   }
-  else if (cor == "AMARELO") {
-    pararMotores();
-    for (int i = 0; i < 5; i++) {
-      digitalWrite(LED_VERMELHO, HIGH);
-      delay(500);
-      digitalWrite(LED_VERMELHO, LOW);
-      delay(500);
-    }
-    seguirLinha();
-  }
   else if (cor == "VERMELHO") {
     pararMotores();
     digitalWrite(LED_VERMELHO, HIGH);
     delay(5000); // fica parado 5 segundos
     digitalWrite(LED_VERMELHO, LOW);
-    andarFrente(); // retoma o movimento
+    fimPercurso = true;
+  }
+  else if (cor == "AMARELO") {
+    pararMotores();
+
+    for (int i = 0; i < 5; i++) {
+      digitalWrite(LED_VERMELHO, HIGH);
+      delay(500);
+      digitalWrite(LED_VERMELHO, LOW);
+      delay(500);
+    }    
+    seguirLinha();
   }
   else if (cor == "VERDE") {
-    // Verde apenas indica início — depois só segue linha
+    digitalWrite(LED_VERMELHO, LOW);
     seguirLinha();
   }
   else {
+    digitalWrite(LED_VERMELHO, LOW);
     seguirLinha();
   }
   delay(100);
 }
 
 // ---------- Funções auxiliares ----------
-
 long medirDistancia() {
   digitalWrite(TRIG, LOW);
   delayMicroseconds(2);
@@ -212,6 +249,24 @@ int readChannel(bool s2, bool s3) {
   return soma / 5;
 }
 
+void calibrarSensor() {
+  Serial.println("=== CALIBRAÇÃO DE BRANCO ===");
+  Serial.println("Posicione o sensor sobre branco puro...");
+  delay(3000);
+  
+  RED_REF = readChannel(LOW, LOW);
+  GREEN_REF = readChannel(HIGH, HIGH);
+  BLUE_REF = readChannel(LOW, HIGH);
+  
+  Serial.print("Calibração concluída - R:");
+  Serial.print(RED_REF);
+  Serial.print(" G:");
+  Serial.print(GREEN_REF);
+  Serial.print(" B:");
+  Serial.println(BLUE_REF);
+  delay(2000);
+}
+
 String detectarCor() {
   redFrequency   = readChannel(LOW,  LOW);
   greenFrequency = readChannel(HIGH, HIGH);
@@ -221,15 +276,20 @@ String detectarCor() {
   int G = greenFrequency;
   int B = blueFrequency;
 
-  int diffRG = abs(R - G);
-  int mediaRGB = (R + G + B) / 3;
+  bool isYellow = (R < 20 && G > 20 && G < 30 && B > 35);
+  bool isRed = (G > 50 && R < 25 && B < 45);
+  bool isGreen = (R > 35 && R < 45 && G > 33 && G < 42 && B > 45);
 
-  bool isYellow = (diffRG <= 10 && B >= max(R, G) + 12 && mediaRGB < 30);
-  bool isGreen  = (G <= R - 3 && G <= B - 3) || (mediaRGB >= 30 && diffRG <= 6 && B >= G + 10);
-  //bool isRed    = (R <= G - 4 && R <= B - 4);
-
-  if (isYellow) return "AMARELO";
-  //else if (isRed) return "VERMELHO";
-  else if (isGreen) return "VERDE";
-  else return "NENHUMA";
+  if (isGreen) {
+    return "VERDE";
+  } 
+  else if (isRed) {
+    return "VERMELHO";
+  } 
+  else if (isYellow) {
+    return "AMARELO";
+  } 
+  else {
+    return "NENHUMA";
+  }
 }
